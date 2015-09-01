@@ -7,6 +7,10 @@ import six
 import requests
 
 
+# Technically, we should support streams that mix line endings.  This regex,
+# however, assumes that a system will provide consistent line endings.
+end_of_field = re.compile(r'\r\n\r\n|\r\r|\n\n')
+
 class SSEClient(object):
     def __init__(self, url, last_id=None, retry=3000, session=None, **kwargs):
         self.url = url
@@ -44,12 +48,14 @@ class SSEClient(object):
         # attribute on Events like the Javascript spec requires.
         self.resp.raise_for_status()
 
+    def _event_complete(self):
+        return re.search(end_of_field, self.buf) is not None
+
     def __iter__(self):
         return self
 
     def __next__(self):
-        # TODO: additionally support CR and CRLF-style newlines.
-        while '\n\n' not in self.buf:
+        while not self._event_complete():
             try:
                 nextchar = next(self.resp.iter_content(decode_unicode=True))
                 self.buf += nextchar
@@ -59,11 +65,14 @@ class SSEClient(object):
 
                 # The SSE spec only supports resuming from a whole message, so
                 # if we have half a message we should throw it out.
-                head, sep, tail = self.buf.rpartition('\n\n')
+                head, sep, tail = self.buf.rpartition('\n')
                 self.buf = head + sep
                 continue
 
-        head, sep, tail = self.buf.partition('\n\n')
+        split = re.split(end_of_field, self.buf)
+        head = split[0]
+        tail = "".join(split[1:])
+
         self.buf = tail
         msg = Event.parse(head)
 
