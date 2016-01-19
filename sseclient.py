@@ -34,6 +34,7 @@ class SSEClient(object):
         # Keep data here as it streams in
         self.buf = u''
 
+        self.requestClose = False
         self._connect()
 
     def _connect(self):
@@ -54,8 +55,11 @@ class SSEClient(object):
     def __iter__(self):
         return self
 
+    def close(self):
+        self.requestClose = True
+
     def __next__(self):
-        while not self._event_complete():
+        while not self._event_complete() and not self.requestClose:
             try:
                 nextchar = next(self.resp.iter_content(decode_unicode=True))
                 self.buf += nextchar
